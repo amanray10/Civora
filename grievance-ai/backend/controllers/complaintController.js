@@ -1,0 +1,221 @@
+const prisma = require('../config/prisma');
+const { analyzeComplaint } = require('../services/aiService');
+const { getIO } = require('../socket');
+
+const OPEN = ['Submitted', 'AI_Processing', 'Assigned', 'Accepted', 'In_Progress'];
+let pretty = (s) => s.replaceAll('_', ' ');
+
+// POST /api/complaints   (multipart: title, description, location, files[])
+exports.create = async (req,res) => {
+  let {title, description, location} = req.body;
+  if (!title?.trim() || !description?.trim()){
+    return res.status(400).json({error: "Title and description are required."});
+  }
+
+  let complaint;
+  try{
+    // 1. store raw complaint
+    complaint = await prisma.complaint.create({
+      data: {
+        userId: req.user.id,
+        title: title.trim(),
+        description: description.trim(),
+        location: location?.trim() || null,
+        status: 'AI_Processing',
+        attachments: {
+          create: (req.files || []).map(f => ({
+            filename: f.originalname, path: '/uploads/' + f.filename, mimetype: f.mimetype
+          }))
+        },
+        statusHistory: { create: [{ status: 'Submitted', updatedById: req.user.id }, { status: 'AI Processing' }] }
+      }
+    });
+  } catch (err){
+    console.log(err);
+    return res.status(500).json({error: "Error occurred while creating complaint."});
+  }
+
+  // 2. respond immediately; AI runs in background
+  res.status(201).json({complaint: complaint});
+
+  // 3. AI pipeline: categorise -> department -> priority -> summary -> duplicate
+  try{
+    let p1 = prisma.department.findMany();
+    let p2 = prisma.complaint.findMany({
+      where: { status: { in: OPEN }, id: { not: complaint.id }, duplicateId: null },
+      orderBy: { createdAt: 'desc' }, take: 25,
+      select: { id: true, title: true, summary: true, location: true }
+    });
+    let [departments, recent] = await Promise.all([p1, p2]);
+
+    let ai = await analyzeComplaint(complaint.title, complaint.description, departments, recent);
+
+    let updated = await prisma.complaint.update({
+      where: { id: complaint.id },
+      data: {
+        category: ai.category,
+        departmentId: ai.departmentId,
+        priority: ai.priority,
+        summary: ai.summary,
+        duplicateId: ai.duplicateId,
+        status: 'Assigned',
+        statusHistory: {
+          create: {
+            status: 'Assigned',
+            note: ai.duplicateId
+              ? `AI: linked as duplicate of complaint #${ai.duplicateId}`
+              : `AI: ${ai.category} · ${ai.priority} priority${ai.aiUsed ? '' : ' (heuristic fallback)'}`
+          }
+        }
+      },
+      include: { department: true }
+    });
+
+    console.log(updated);
+
+    getIO()?.to(`user:${req.user.id}`).emit('complaint:update', {
+      id: updated.id, status: pretty(updated.status),
+      department: updated.department?.departmentName, priority: updated.priority
+    });
+    if (updated.departmentId) getIO()?.to(`dept:${updated.departmentId}`).emit('complaint:new', { id: updated.id });
+
+  } catch (err){
+    console.log('AI pipeline failed:', err);
+    await prisma.complaint.update({ where: { id: complaint.id }, data: { status: 'Submitted' } });
+  }
+};
+
+// GET /api/complaints  — role-aware listing (?status=&search=)
+exports.list = async (req,res) => {
+  let {role, id, departmentId} = req.user;
+  let {status, search} = req.query;
+
+  let where = {};
+  if (role === 'citizen') where.userId = id;
+  if (role === 'department') where.departmentId = departmentId;
+  if (status) where.status = status.replaceAll(' ', '_');
+  if (search) where.OR = [
+    { title: { contains: search } },
+    { description: { contains: search } },
+    { location: { contains: search } }
+  ];
+
+  try{
+    let complaints = await prisma.complaint.findMany({
+      where: where,
+      orderBy: [{ createdAt: 'desc' }],
+      include: {
+        department: { select: { departmentName: true } },
+        user: { select: { name: true, email: true } },
+        _count: { select: { duplicates: true } }
+      }
+    });
+
+    console.log(complaints);
+    res.json({complaints: complaints.map(c => ({...c, status: pretty(c.status)}))});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while fetching complaints."});
+  }
+};
+
+// GET /api/complaints/:id
+exports.getById = async (req,res) => {
+  let id = Number(req.params.id);
+
+  try{
+    let c = await prisma.complaint.findUnique({
+      where: { id: id },
+      include: {
+        department: true,
+        user: { select: { id: true, name: true, email: true, picture: true } },
+        attachments: true,
+        duplicates: { select: { id: true, title: true } },
+        duplicateOf: { select: { id: true, title: true, status: true } },
+        statusHistory: { orderBy: { timestamp: 'asc' }, include: { updatedBy: { select: { name: true } } } }
+      }
+    });
+
+    if (!c) return res.status(404).json({error: "Complaint not found."});
+
+    let {role, id: userId, departmentId} = req.user;
+    let allowed = role === 'admin' || c.userId === userId || (role === 'department' && c.departmentId === departmentId);
+    if (!allowed) return res.status(403).json({error: "You do not have access to this complaint."});
+
+    console.log(c);
+    res.json({complaint: {...c, status: pretty(c.status)}});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while fetching complaint."});
+  }
+};
+
+// PUT /api/complaints/:id/status  { status, note }  — department/admin
+exports.updateStatus = async (req,res) => {
+  let id = Number(req.params.id);
+  let {status, note} = req.body;
+  let valid = ['Accepted', 'In Progress', 'Resolved', 'Rejected', 'Closed', 'Assigned'];
+  if (!valid.includes(status)) return res.status(400).json({error: "Invalid status."});
+
+  try{
+    let existing = await prisma.complaint.findUnique({ where: { id: id } });
+    if (!existing) return res.status(404).json({error: "Complaint not found."});
+    if (req.user.role === 'department' && existing.departmentId !== req.user.departmentId){
+      return res.status(403).json({error: "This complaint belongs to another department."});
+    }
+
+    let updated = await prisma.complaint.update({
+      where: { id: id },
+      data: {
+        status: status.replaceAll(' ', '_'),
+        statusHistory: { create: { status: status, note: note || null, updatedById: req.user.id } }
+      }
+    });
+
+    // cascade the status to linked duplicates + notify owners live
+    let dupes = await prisma.complaint.findMany({ where: { duplicateId: id }, select: { id: true, userId: true } });
+    if (['Resolved', 'Closed', 'In Progress'].includes(status) && dupes.length){
+      await prisma.complaint.updateMany({ where: { duplicateId: id }, data: { status: status.replaceAll(' ', '_') } });
+    }
+
+    let io = getIO();
+    [{ id: id, userId: existing.userId }, ...dupes].forEach(c =>
+      io?.to(`user:${c.userId}`).emit('complaint:update', { id: c.id, status: status })
+    );
+
+    console.log(updated);
+    res.json({complaint: {...updated, status: status}});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while updating status."});
+  }
+};
+
+// PUT /api/complaints/:id/assign  { departmentId }  — admin re-route
+exports.assignDepartment = async (req,res) => {
+  let id = Number(req.params.id);
+  let departmentId = Number(req.body.departmentId);
+
+  try{
+    let updated = await prisma.complaint.update({
+      where: { id: id },
+      data: {
+        departmentId: departmentId, status: 'Assigned',
+        statusHistory: { create: { status: 'Assigned', note: 'Re-assigned by admin', updatedById: req.user.id } }
+      },
+      include: { department: true }
+    });
+
+    getIO()?.to(`dept:${departmentId}`).emit('complaint:new', { id: id });
+
+    console.log(updated);
+    res.json({complaint: {...updated, status: 'Assigned'}});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while assigning department."});
+  }
+};
