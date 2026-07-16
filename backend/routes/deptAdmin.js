@@ -4,7 +4,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 router.use(requireAuth, requireRole('admin'));
 router.get('/users', c.listUsers);
-router.post('/officers', c.addOfficer);
+
 router.put('/officers/:id/demote', c.demoteOfficer);
 router.put('/users/:id/deactivate', c.deactivate);
 router.put('/users/:id/reactivate', c.reactivate);

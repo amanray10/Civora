@@ -7,18 +7,12 @@ export default function DeptAdminDashboard() {
   const { user: me } = useAuth();
   const [users, setUsers] = useState([]);
   const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
+
 
   const load = () => api.get('/dept-admin/users').then((r) => setUsers(r.data.users));
   useEffect(() => { load(); }, []);
 
-  const addOfficer = (e) => {
-    e.preventDefault();
-    setError('');
-    api.post('/dept-admin/officers', { email: email.trim() })
-      .then(() => { setEmail(''); load(); })
-      .catch((err) => setError(err.response?.data?.error || 'Could not add officer.'));
-  };
+  
 
   const demote = (id) => api.put(`/dept-admin/officers/${id}/demote`).then(load);
   const deactivate = (id) => api.put(`/dept-admin/users/${id}/deactivate`).then(load);
@@ -36,15 +30,8 @@ export default function DeptAdminDashboard() {
       <p className="mt-1 text-sm text-slate-500">Manage the officers and citizens tied to your department.</p>
 
       <h2 className="mb-3 mt-8 font-display text-lg font-bold">Department officers</h2>
-      <form onSubmit={addOfficer} className="mb-4 flex flex-wrap gap-2">
-        <input
-          type="email" required placeholder="officer@email.com" value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="input max-w-xs"
-        />
-        <button type="submit" className="btn-ink py-1.5 text-sm">Add officer</button>
-      </form>
-      {error && <p className="mb-3 text-sm text-rose-600">{error}</p>}
+      
+      
 
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
