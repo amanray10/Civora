@@ -65,14 +65,17 @@ ollama pull llama3          # or mistral / gemma / phi — set OLLAMA_MODEL in b
 ```
 > If Ollama is offline, the backend falls back to a keyword heuristic so the demo never breaks.
 
-## 5. Create the admin & department users
-Sign in once with Google, then in MySQL:
+## 5. Create the superadmin, department admins & officers
+CivicLink has 4 roles: `citizen` < `department` (queue officer, scoped to one department) < `admin` (manages one department's officers + citizens) < `superadmin` (manages everyone, city-wide analytics).
+
+Sign in once with Google, then in MySQL, promote yourself to superadmin:
 ```sql
-UPDATE User SET role='admin' WHERE email='you@gmail.com';
--- department officer (departmentId from the Department table):
-UPDATE User SET role='department', departmentId=3 WHERE email='officer@gmail.com';
+UPDATE User SET role='superadmin' WHERE email='you@gmail.com';
 ```
-After that, the admin can change anyone's role from the **Admin → Users & roles** panel in the UI.
+From there:
+- The superadmin assigns the `admin` role (+ a department) to anyone from the **Admin → Users & roles** panel — that person becomes the manager of that one department, able to view/deactivate its citizens and add/remove its officers from their own **Department Admin** page.
+- A department `admin` adds `department` officers by email from their **Department Admin** page; officers work the live queue at **Department Queue**.
+- A superadmin can deactivate or reactivate any admin or citizen account; a department `admin` can deactivate/reactivate only the citizens and officers tied to their own department.
 
 ## Complaint lifecycle
 `Submitted → AI Processing → Assigned → Accepted → In Progress → Resolved → Closed` (or `Rejected`).
@@ -93,8 +96,8 @@ grievance-ai/
 │   └── uploads/             # complaint attachments
 ├── frontend/
 │   └── src/
-│       ├── pages/           # Login, Dashboard, NewComplaint, History,
-│       │                    # Details, Profile, Chatbot, Admin, Department
+│       ├── pages/           # Login, Dashboard, NewComplaint, History, Details,
+│       │                    # Profile, Chatbot, SuperAdmin, DeptAdmin, Department
 │       ├── components/      # Navbar, StatusBadge, StatusTimeline, Protected
 │       ├── hooks/useAuth.jsx
 │       └── services/        # axios instance, socket client

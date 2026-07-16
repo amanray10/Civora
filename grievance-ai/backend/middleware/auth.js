@@ -1,13 +1,21 @@
 // JWT authentication + role guards
 const jwt = require('jsonwebtoken');
+const prisma = require('../config/prisma');
 
-function requireAuth(req, res, next){
+async function requireAuth(req, res, next){
   let header = req.headers.authorization || '';
   let token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({error: "Sign in to continue."});
 
   try{
-    req.user = jwt.verify(token, process.env.JWT_SECRET); // { id, role, departmentId }
+    let payload = jwt.verify(token, process.env.JWT_SECRET); // { id, role, departmentId }
+
+    let account = await prisma.user.findUnique({ where: { id: payload.id }, select: { isActive: true } });
+    if (!account || !account.isActive){
+      return res.status(401).json({error: "This account has been deactivated."});
+    }
+
+    req.user = payload;
     next();
   } catch (err){
     console.log(err);
@@ -22,4 +30,7 @@ let requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { requireAuth, requireRole };
+// Shared department-scoping check for the `department`/`admin` roles.
+let sameDepartment = (req, departmentId) => req.user.departmentId === departmentId;
+
+module.exports = { requireAuth, requireRole, sameDepartment };
