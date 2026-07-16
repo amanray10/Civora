@@ -111,3 +111,8 @@ grievance-ai/
 3. Submit the same pothole complaint from two accounts → the second gets **merged as a duplicate**.
 4. Sign in as the department officer → Accept → Start work → Resolve; the citizen's screen updates live.
 5. Open the Admin dashboard → Recharts analytics: trend, status donut, per-department load, priority mix.
+
+
+FOR password reset throughuser not logged in through google.
+
+node -e "require('dotenv').config(); const bcrypt=require('bcrypt'); const prisma=require('./config/prisma'); bcrypt.hash('NEW_PASSWORD', 10).then(h => prisma.user.update({where:{email:'user@email.com'}, data:{password:h}})).then(()=>{console.log('done'); process.exit(0)});"

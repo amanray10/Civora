@@ -21,7 +21,7 @@ export default function ComplaintDetails() {
 
   useEffect(() => {
     load();
-    if (user.role === 'admin') api.get('/departments').then((r) => setDepartments(r.data.departments));
+    if (['admin', 'superadmin'].includes(user.role)) api.get('/departments').then((r) => setDepartments(r.data.departments));
     const s = connectSocket();
     const onUpdate = (msg) => { if (Number(msg.id) === Number(id)) load(); };
     s?.on('complaint:update', onUpdate);
@@ -38,7 +38,7 @@ export default function ComplaintDetails() {
   if (error) return <main className="mx-auto max-w-3xl p-8"><div className="card p-8 text-rose-600">{error}</div></main>;
   if (!c) return <main className="p-8 text-center text-slate-500">Loading…</main>;
 
-  const canAct = user.role === 'admin' || (user.role === 'department' && c.departmentId === user.departmentId);
+  const canAct = user.role === 'superadmin' || (['admin', 'department'].includes(user.role) && c.departmentId === user.departmentId);
   const nearbyFacilities = Array.isArray(c.nearbyFacilities) ? c.nearbyFacilities : [];
 
   return (
@@ -139,9 +139,9 @@ export default function ComplaintDetails() {
               <button onClick={() => setStatus('In Progress')} className="btn-ink">Start work</button>
               <button onClick={() => setStatus('Resolved')} className="btn-civic">Mark resolved</button>
               <button onClick={() => setStatus('Rejected')} className="btn-ghost text-rose-600">Reject</button>
-              {user.role === 'admin' && <button onClick={() => setStatus('Closed')} className="btn-ghost">Close</button>}
+              {['admin', 'superadmin'].includes(user.role) && <button onClick={() => setStatus('Closed')} className="btn-ghost">Close</button>}
             </div>
-            {user.role === 'admin' && departments.length > 0 && (
+            {['admin', 'superadmin'].includes(user.role) && departments.length > 0 && (
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <label className="label">Re-route to another department</label>
                 <select className="input" value={c.departmentId || ''} onChange={(e) => reassign(e.target.value)}>
