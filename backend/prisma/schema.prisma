@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int             @id @default(autoincrement())
+  googleId     String?         @unique
+  name         String
+  email        String          @unique
+  password     String?
+  picture      String?
+  role         User_role       @default(citizen)
+  departmentId Int?
+  createdAt    DateTime        @default(now())
+  chats        ChatHistory[]
+  complaints   Complaint[]
+  statusEdits  StatusHistory[]
+  department   Department?     @relation(fields: [departmentId], references: [id])
+
+  @@index([departmentId], map: "User_departmentId_fkey")
+}
+
+model Department {
+  id             Int         @id @default(autoincrement())
+  departmentName String      @unique
+  email          String
+  createdAt      DateTime    @default(now())
+  complaints     Complaint[]
+  users          User[]
+}
+
+model Complaint {
+  id            Int             @id @default(autoincrement())
+  userId        Int
+  title         String
+  description   String          @db.Text
+  category      String?
+  departmentId  Int?
+  priority      Priority?
+  status        Status          @default(Submitted)
+  summary       String?         @db.Text
+  location      String?
+  duplicateId   Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  attachments   Attachment[]
+  department    Department?     @relation(fields: [departmentId], references: [id])
+  duplicateOf   Complaint?      @relation("Duplicates", fields: [duplicateId], references: [id])
+  duplicates    Complaint[]     @relation("Duplicates")
+  user          User            @relation(fields: [userId], references: [id])
+  statusHistory StatusHistory[]
+
+  @@index([status])
+  @@index([departmentId])
+  @@index([duplicateId], map: "Complaint_duplicateId_fkey")
+  @@index([userId], map: "Complaint_userId_fkey")
+}
+
+model Attachment {
+  id          Int       @id @default(autoincrement())
+  complaintId Int
+  filename    String
+  path        String
+  mimetype    String
+  createdAt   DateTime  @default(now())
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId], map: "Attachment_complaintId_fkey")
+}
+
+model StatusHistory {
+  id          Int       @id @default(autoincrement())
+  complaintId Int
+  status      String
+  note        String?
+  updatedById Int?
+  timestamp   DateTime  @default(now())
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  updatedBy   User?     @relation(fields: [updatedById], references: [id])
+
+  @@index([complaintId], map: "StatusHistory_complaintId_fkey")
+  @@index([updatedById], map: "StatusHistory_updatedById_fkey")
+}
+
+model ChatHistory {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  question  String   @db.Text
+  answer    String   @db.Text
+  timestamp DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "ChatHistory_userId_fkey")
+}
+
+enum Priority {
+  Low
+  Medium
+  High
+  Critical
+}
+
+enum Status {
+  Submitted
+  AI_Processing
+  Assigned
+  Accepted
+  In_Progress
+  Resolved
+  Rejected
+  Closed
+}
+
+enum User_role {
+  citizen
+  department
+  admin
+}
