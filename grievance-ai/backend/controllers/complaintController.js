@@ -1,5 +1,5 @@
 const prisma = require('../config/prisma');
-const { analyzeComplaint } = require('../services/aiService');
+const { analyzeComplaint, translateComplaint } = require('../services/aiService');
 const { getNearbyFacilities } = require('../services/locationService');
 const { getIO } = require('../socket');
 
@@ -114,10 +114,39 @@ exports.create = async (req,res) => {
     });
     let [departments, recent, nearbyFacilities] = await Promise.all([p1, p2, facilityPromise]);
 
-    let ai = await analyzeComplaint(complaint.title, complaint.description, departments, recent);
+    // Translate title/description if in transliterated Hindi/Marathi
+    let translationResult = null;
+    let triageTitle = complaint.title;
+    let triageDescription = complaint.description;
+    try {
+      translationResult = await translateComplaint(complaint.title, complaint.description);
+      if (translationResult.title.detected) {
+        triageTitle = translationResult.title.english;
+        console.log(`[complaints] Title translated from ${translationResult.title.language}: "${complaint.title}" -> "${triageTitle}"`);
+      }
+      if (translationResult.description.detected) {
+        triageDescription = translationResult.description.english;
+        console.log(`[complaints] Description translated from ${translationResult.description.language}: "${complaint.description}" -> "${triageDescription}"`);
+      }
+    } catch (err) {
+      console.warn('[complaints] Translation step failed, proceeding with original text:', err.message);
+    }
+
+    let ai = await analyzeComplaint(triageTitle, triageDescription, departments, recent);
     const duplicateCandidate = ai.duplicateId ? recent.find((c) => c.id === ai.duplicateId) : null;
     const duplicateAllowed = hasStrongDuplicateSignals(complaint, duplicateCandidate, ai.category);
     const duplicateId = duplicateAllowed ? ai.duplicateId : null;
+
+    // Build the status note including translation info
+    const detectedLang = translationResult?.title?.language || translationResult?.description?.language || null;
+    let statusNote = ai.duplicateId
+      ? duplicateId
+        ? `AI: linked as duplicate of complaint #${duplicateId}`
+        : `AI: ${ai.category} · ${ai.priority} priority (duplicate rejected by local check)`
+      : `AI: ${ai.category} · ${ai.priority} priority${ai.aiUsed ? '' : ' (heuristic fallback)'}`;
+    if (detectedLang) {
+      statusNote += ` · Translated from ${detectedLang}`;
+    }
 
     let updated = await prisma.complaint.update({
       where: { id: complaint.id },
@@ -132,11 +161,7 @@ exports.create = async (req,res) => {
         statusHistory: {
           create: {
             status: 'Assigned',
-            note: ai.duplicateId
-              ? duplicateId
-                ? `AI: linked as duplicate of complaint #${duplicateId}`
-                : `AI: ${ai.category} · ${ai.priority} priority (duplicate rejected by local check)`
-              : `AI: ${ai.category} · ${ai.priority} priority${ai.aiUsed ? '' : ' (heuristic fallback)'}`
+            note: statusNote
           }
         }
       },

@@ -11,3 +11,18 @@ body { @apply font-body text-ink antialiased; }
 .card       { @apply rounded-xl border border-slate-200 bg-white shadow-sm; }
 .input      { @apply w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-civic focus:ring-2 focus:ring-civic/20; }
 .label      { @apply mb-1.5 block text-sm font-medium text-ink-soft; }
+
+/* Translation preview animations */
+@keyframes slideDown {
+  from { opacity: 0; max-height: 0; transform: translateY(-8px); }
+  to   { opacity: 1; max-height: 200px; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}

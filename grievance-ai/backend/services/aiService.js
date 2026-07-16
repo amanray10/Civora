@@ -1,7 +1,9 @@
 // ------------------------------------------------------------------
 // Ollama AI service
-//   - analyzeComplaint : category, department, priority, summary, duplicate
-//   - chatbotReply     : citizen-help chatbot
+//   - analyzeComplaint    : category, department, priority, summary, duplicate
+//   - chatbotReply        : citizen-help chatbot
+//   - detectAndTranslate  : detect transliterated Hindi/Marathi and translate to English
+//   - translateComplaint  : translate complaint title + description
 // Falls back to keyword heuristics if Ollama is unreachable, so the
 // demo never breaks.
 // ------------------------------------------------------------------
@@ -65,6 +67,8 @@ async function analyzeComplaint(title, description, departments, recent) {
 
   const prompt = `You are the triage engine of a municipal grievance system.
 
+IMPORTANT: The complaint text may be in transliterated Hindi or Marathi (Indian languages written in English/Roman script, e.g. "mere area mei pothole hai" means "there is a pothole in my area", "paani nahi aa raha" means "water is not coming", "bijli nahi hai" means "there is no electricity"). You MUST interpret the actual meaning regardless of language and analyze accordingly.
+
 DEPARTMENTS (id: name):
 ${deptList}
 
@@ -80,7 +84,7 @@ Return ONLY a JSON object with exactly these keys:
   "category": one of ["Electricity","Water","Sanitation","Roads","Health","Gas Safety","Environment","Other"],
   "department_id": integer id of the best department from the list,
   "priority": one of ["Low","Medium","High","Critical"] (Critical = danger to life/safety),
-  "summary": one crisp sentence (max 25 words) for administrators,
+  "summary": one crisp sentence IN ENGLISH (max 25 words) for administrators - translate if needed,
   "duplicate_of": integer id of a matching recent complaint about the SAME issue at the SAME place, or null,
   "duplicate_confidence": number 0 to 1
 }`;
@@ -118,15 +122,69 @@ Assistant:`;
   }
 }
 
+// ------------------- transliteration detection -------------------
+
+/**
+ * Detect if text is transliterated Hindi/Marathi and translate to English.
+ * @param {string} text
+ * @returns {Promise<{detected:boolean, language:string|null, english:string, original:string}>}
+ */
+async function detectAndTranslate(text) {
+  if (!text || !text.trim()) return { detected: false, language: null, english: text || '', original: text || '' };
+
+  const safeText = text.replace(/"/g, '\\"');
+  const prompt = 'You are a language detection and translation engine for an Indian civic grievance system.\n\nAnalyze the following text and determine if it is written in transliterated Hindi or Marathi (Indian languages written using English/Roman script). Examples:\n- "mere area mei pothole hai" -> Hindi (transliterated) -> "There is a pothole in my area"\n- "paani nahi aa raha hai" -> Hindi (transliterated) -> "Water is not coming"\n- "sadak kharab hai" -> Hindi (transliterated) -> "The road is in bad condition"\n- "kachra uthaya nahi gaya" -> Hindi (transliterated) -> "Garbage has not been picked up"\n- "ithe pani yet nahi" -> Marathi (transliterated) -> "Water is not coming here"\n- "rasta kharab aahe" -> Marathi (transliterated) -> "The road is bad"\n- "There is a pothole on my street" -> Already English, no translation needed\n\nText to analyze:\n"' + safeText + '"\n\nReturn ONLY a JSON object:\n{\n  "detected": true if the text is in transliterated Hindi/Marathi (even partially mixed with English), false if it is already in English,\n  "language": "Hindi" or "Marathi" or "Hindi-English Mix" or null (if already English),\n  "english": the full English translation of the text (if detected=true) OR the original text unchanged (if detected=false),\n  "original": the original text exactly as provided\n}';
+
+  try {
+    const result = await ollamaJSON(prompt);
+    return {
+      detected: !!result.detected,
+      language: result.language || null,
+      english: result.english || text,
+      original: text
+    };
+  } catch (err) {
+    console.warn('[aiService] Translation detection failed:', err.message);
+    return heuristicTranslitDetect(text);
+  }
+}
+
+/**
+ * Translate both title and description of a complaint.
+ * @param {string} title
+ * @param {string} description
+ * @returns {Promise<{title:{detected,language,english,original}, description:{detected,language,english,original}}>}
+ */
+async function translateComplaint(title, description) {
+  const [titleResult, descResult] = await Promise.all([
+    detectAndTranslate(title),
+    detectAndTranslate(description)
+  ]);
+  return { title: titleResult, description: descResult };
+}
+
+// Simple heuristic check for common Hindi/Marathi transliterated words
+const TRANSLIT_MARKERS = /\b(hai|nahi|mein|mei|mere|mera|karo|kya|yahan|wahan|bahut|kuch|aur|lekin|abhi|isko|usko|humara|hamara|aahe|nako|kaay|kahi|tyache|ithe|tithe|kela|zala|kami|jyada|bohot|bohut|acha|theek|kharab|bura|accha|pani|paani|bijli|sadak|sarak|gaddha|gandagi|nala|ped|machhar|aag|gutter|nali|naali)\b/i;
+
+function heuristicTranslitDetect(text) {
+  const detected = TRANSLIT_MARKERS.test(text);
+  return {
+    detected: detected,
+    language: detected ? 'Hindi' : null,
+    english: text,
+    original: text
+  };
+}
+
 // ------------------- heuristic fallback -------------------
 const KEYWORDS = [
-  { cat: 'Gas Safety',  pri: 'Critical', dept: /gas|fire/i,        words: /gas leak|fire|explosion|smoke/i },
-  { cat: 'Electricity', pri: 'High',     dept: /electric/i,        words: /electric|street ?light|power|transformer|wire/i },
-  { cat: 'Water',       pri: 'High',     dept: /water/i,           words: /water|pipeline|leakage|sewage overflow|tap/i },
-  { cat: 'Sanitation',  pri: 'Medium',   dept: /sanitation/i,      words: /garbage|trash|waste|clean|drain|toilet/i },
-  { cat: 'Roads',       pri: 'Medium',   dept: /road|infra/i,      words: /pothole|road|footpath|bridge|traffic signal/i },
-  { cat: 'Health',      pri: 'High',     dept: /health/i,          words: /mosquito|dengue|hospital|stray|epidemic/i },
-  { cat: 'Environment', pri: 'Low',      dept: /park|environment/i,words: /tree|park|pollution|noise/i }
+  { cat: 'Gas Safety',  pri: 'Critical', dept: /gas|fire/i,        words: /gas leak|fire|explosion|smoke|aag|gas risakna/i },
+  { cat: 'Electricity', pri: 'High',     dept: /electric/i,        words: /electric|street ?light|power|transformer|wire|bijli|bijlee|light nahi|current nahi|batti/i },
+  { cat: 'Water',       pri: 'High',     dept: /water/i,           words: /water|pipeline|leakage|sewage overflow|tap|paani|pani|nala|nal|naali|nali|jal|pani nahi/i },
+  { cat: 'Sanitation',  pri: 'Medium',   dept: /sanitation/i,      words: /garbage|trash|waste|clean|drain|toilet|kachra|kachara|gandagi|safai|gutter|ganda/i },
+  { cat: 'Roads',       pri: 'Medium',   dept: /road|infra/i,      words: /pothole|road|footpath|bridge|traffic signal|sadak|sarak|gaddha|gadda|rasta|khada|khadda/i },
+  { cat: 'Health',      pri: 'High',     dept: /health/i,          words: /mosquito|dengue|hospital|stray|epidemic|machhar|machar|aspatal|bukhar|bimari|bimar/i },
+  { cat: 'Environment', pri: 'Low',      dept: /park|environment/i,words: /tree|park|pollution|noise|ped|pedh|pradushan|shor|jungle|hara bhara/i }
 ];
 
 function heuristicAnalysis(title, description, departments) {
@@ -148,4 +206,5 @@ function fallbackDept(description, departments) {
   return heuristicAnalysis('', description, departments).departmentId;
 }
 
-module.exports = { analyzeComplaint, chatbotReply };
+module.exports = { analyzeComplaint, chatbotReply, detectAndTranslate, translateComplaint };
+
