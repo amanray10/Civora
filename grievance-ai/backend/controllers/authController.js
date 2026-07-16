@@ -28,6 +28,9 @@ exports.googleLogin = async (req,res) => {
     let {sub, name, email, picture} = ticket.getPayload();
 
     let user = await prisma.user.findUnique({ where: { email: email } });
+    if (user && !user.isActive){
+      return res.status(403).json({error: "This account has been deactivated. Contact an administrator."});
+    }
     user = user
       ? await prisma.user.update({ where: { id: user.id }, data: { googleId: sub, picture: picture, name: name } })
       : await prisma.user.create({ data: { googleId: sub, name: name, email: email, picture: picture } });
@@ -74,8 +77,40 @@ exports.login = async (req,res) => {
     if (!user || !user.password || !(await bcrypt.compare(password || '', user.password))){
       return res.status(401).json({error: "Incorrect email or password."});
     }
+    if (!user.isActive){
+      return res.status(403).json({error: "This account has been deactivated. Contact an administrator."});
+    }
 
     console.log("login:", user.id);
+    res.json({token: sign(user), user: publicUser(user)});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while logging in."});
+  }
+};
+
+// POST /api/auth/department-login  { email, password, departmentId }
+exports.departmentLogin = async (req,res) => {
+  let {email, password, departmentId} = req.body;
+  if (!departmentId) return res.status(400).json({error: "Select your department."});
+
+  try{
+    let user = await prisma.user.findUnique({ where: { email: email } });
+    if (!user || !user.password || !(await bcrypt.compare(password || '', user.password))){
+      return res.status(401).json({error: "Incorrect email or password."});
+    }
+    if (!user.isActive){
+      return res.status(403).json({error: "This account has been deactivated. Contact an administrator."});
+    }
+    if (!['department', 'admin'].includes(user.role)){
+      return res.status(403).json({error: "This account is not a department account. Use the citizen sign-in."});
+    }
+    if (user.departmentId !== Number(departmentId)){
+      return res.status(403).json({error: "You are not registered with this department."});
+    }
+
+    console.log("department login:", user.id);
     res.json({token: sign(user), user: publicUser(user)});
 
   } catch (err){

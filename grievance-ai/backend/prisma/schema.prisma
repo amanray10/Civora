@@ -12,6 +12,7 @@ enum Role {
   citizen
   department
   admin
+  superadmin
 }
 
 enum Priority {
@@ -40,6 +41,8 @@ model User {
   password     String?       // bcrypt hash (email+password fallback)
   picture      String?
   role         Role          @default(citizen)
+  isActive     Boolean       @default(true)
+  deletedAt    DateTime?
   department   Department?   @relation(fields: [departmentId], references: [id])
   departmentId Int?
   complaints   Complaint[]

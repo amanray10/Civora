@@ -49,7 +49,7 @@ exports.analytics = async (_req,res) => {
 exports.users = async (_req,res) => {
   try{
     let users = await prisma.user.findMany({
-      select: { id: true, name: true, email: true, role: true, departmentId: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, departmentId: true, isActive: true, deletedAt: true, createdAt: true },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -65,14 +65,14 @@ exports.users = async (_req,res) => {
 // PUT /api/admin/users/:id/role  { role, departmentId }
 exports.setRole = async (req,res) => {
   let {role, departmentId} = req.body;
-  if (!['citizen', 'department', 'admin'].includes(role)){
+  if (!['citizen', 'department', 'admin', 'superadmin'].includes(role)){
     return res.status(400).json({error: "Invalid role."});
   }
 
   try{
     let user = await prisma.user.update({
       where: { id: Number(req.params.id) },
-      data: { role: role, departmentId: role === 'department' ? Number(departmentId) || null : null }
+      data: { role: role, departmentId: ['department', 'admin'].includes(role) ? Number(departmentId) || null : null }
     });
 
     console.log("role updated:", user.id, role);
@@ -81,5 +81,44 @@ exports.setRole = async (req,res) => {
   } catch (err){
     console.log(err);
     res.status(500).json({error: "Error occurred while updating role."});
+  }
+};
+
+// PUT /api/admin/users/:id/deactivate
+exports.deactivate = async (req,res) => {
+  let id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({error: "You cannot deactivate your own account."});
+
+  try{
+    let user = await prisma.user.update({
+      where: { id: id },
+      data: { isActive: false, deletedAt: new Date() }
+    });
+
+    console.log("deactivated:", user.id);
+    res.json({user: { id: user.id, isActive: user.isActive, deletedAt: user.deletedAt }});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while deactivating user."});
+  }
+};
+
+// PUT /api/admin/users/:id/reactivate
+exports.reactivate = async (req,res) => {
+  let id = Number(req.params.id);
+
+  try{
+    let user = await prisma.user.update({
+      where: { id: id },
+      data: { isActive: true, deletedAt: null }
+    });
+
+    console.log("reactivated:", user.id);
+    res.json({user: { id: user.id, isActive: user.isActive, deletedAt: user.deletedAt }});
+
+  } catch (err){
+    console.log(err);
+    res.status(500).json({error: "Error occurred while reactivating user."});
   }
 };

@@ -16,7 +16,11 @@ export function AuthProvider({ children }) {
     localStorage.setItem('user', JSON.stringify(user));
     setUser(user);
     connectSocket();
-    navigate(user.role === 'admin' ? '/admin' : user.role === 'department' ? '/department' : '/dashboard');
+    navigate(
+      user.role === 'superadmin' ? '/superadmin' :
+      user.role === 'admin' ? '/dept-admin' :
+      user.role === 'department' ? '/department' : '/dashboard'
+    );
   };
 
   const loginWithGoogle = async (credential) =>
@@ -24,6 +28,9 @@ export function AuthProvider({ children }) {
 
   const loginWithEmail = async (email, password) =>
     finishLogin((await api.post('/auth/login', { email, password })).data);
+
+  const loginWithDepartment = async (email, password, departmentId) =>
+    finishLogin((await api.post('/auth/department-login', { email, password, departmentId })).data);
 
   const register = async (name, email, password) =>
     finishLogin((await api.post('/auth/register', { name, email, password })).data);
@@ -37,7 +44,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loginWithGoogle, loginWithEmail, register, logout }}>
+    <AuthContext.Provider value={{ user, loginWithGoogle, loginWithEmail, loginWithDepartment, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

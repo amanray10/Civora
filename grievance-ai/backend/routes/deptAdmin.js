@@ -1,11 +1,11 @@
 const router = require('express').Router();
-const c = require('../controllers/adminController');
+const c = require('../controllers/deptAdminController');
 const { requireAuth, requireRole } = require('../middleware/auth');
 
-router.use(requireAuth, requireRole('superadmin'));
-router.get('/analytics', c.analytics);
-router.get('/users', c.users);
-router.put('/users/:id/role', c.setRole);
+router.use(requireAuth, requireRole('admin'));
+router.get('/users', c.listUsers);
+router.post('/officers', c.addOfficer);
+router.put('/officers/:id/demote', c.demoteOfficer);
 router.put('/users/:id/deactivate', c.deactivate);
 router.put('/users/:id/reactivate', c.reactivate);
 

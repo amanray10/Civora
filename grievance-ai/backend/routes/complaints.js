@@ -7,7 +7,7 @@ router.use(requireAuth);
 router.post('/', upload.array('files', 4), c.create);
 router.get('/', c.list);
 router.get('/:id', c.getById);
-router.put('/:id/status', requireRole('department', 'admin'), c.updateStatus);
-router.put('/:id/assign', requireRole('admin'), c.assignDepartment);
+router.put('/:id/status', requireRole('department', 'admin', 'superadmin'), c.updateStatus);
+router.put('/:id/assign', requireRole('superadmin'), c.assignDepartment);
 
 module.exports = router;

@@ -27,7 +27,13 @@ export default function Navbar() {
           {user.role === 'department' && <NavLink to="/department" className={linkCls}>Department Queue</NavLink>}
           {user.role === 'admin' && (
             <>
-              <NavLink to="/admin" className={linkCls}>Admin</NavLink>
+              <NavLink to="/dept-admin" className={linkCls}>Department Admin</NavLink>
+              <NavLink to="/department" className={linkCls}>Department Queue</NavLink>
+            </>
+          )}
+          {user.role === 'superadmin' && (
+            <>
+              <NavLink to="/superadmin" className={linkCls}>Admin</NavLink>
               <NavLink to="/complaints" className={linkCls}>All Complaints</NavLink>
             </>
           )}

@@ -23,6 +23,7 @@ app.use('/api/complaints', require('./routes/complaints'));
 app.use('/api/chat', require('./routes/chat'));
 app.use('/api/departments', require('./routes/departments'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/dept-admin', require('./routes/deptAdmin'));
 
 // central error handler (multer errors, etc.)
 app.use((err, _req, res, _next) => {

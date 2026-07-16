@@ -5,10 +5,12 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, CartesianGrid
 } from 'recharts';
 import api from '../services/api';
+import { useAuth } from '../hooks/useAuth.jsx';
 
 const COLORS = ['#0F2A43', '#E8871E', '#27496B', '#C96F0C', '#5B7A9D', '#F2B366', '#8FA8C2', '#7A5230'];
 
-export default function AdminDashboard() {
+export default function SuperAdminDashboard() {
+  const { user: me } = useAuth();
   const [a, setA] = useState(null);
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -22,6 +24,9 @@ export default function AdminDashboard() {
 
   const setRole = (id, role, departmentId) =>
     api.put(`/admin/users/${id}/role`, { role, departmentId }).then(load);
+
+  const deactivate = (id) => api.put(`/admin/users/${id}/deactivate`).then(load);
+  const reactivate = (id) => api.put(`/admin/users/${id}/reactivate`).then(load);
 
   if (!a) return <main className="p-8 text-center text-slate-500">Loading analytics…</main>;
 
@@ -113,11 +118,15 @@ export default function AdminDashboard() {
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-            <tr><th className="px-4 py-3">Name</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Role</th><th className="px-4 py-3">Department</th></tr>
+            <tr>
+              <th className="px-4 py-3">Name</th><th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3">Role</th><th className="px-4 py-3">Department</th>
+              <th className="px-4 py-3">Status</th><th className="px-4 py-3"></th>
+            </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id} className="border-t border-slate-100">
+              <tr key={u.id} className={`border-t border-slate-100 ${!u.isActive ? 'opacity-50' : ''}`}>
                 <td className="px-4 py-3 font-medium">{u.name}</td>
                 <td className="px-4 py-3 text-slate-500">{u.email}</td>
                 <td className="px-4 py-3">
@@ -125,15 +134,24 @@ export default function AdminDashboard() {
                     <option value="citizen">citizen</option>
                     <option value="department">department</option>
                     <option value="admin">admin</option>
+                    <option value="superadmin">superadmin</option>
                   </select>
                 </td>
                 <td className="px-4 py-3">
-                  {u.role === 'department' ? (
-                    <select className="input py-1.5" value={u.departmentId || ''} onChange={(e) => setRole(u.id, 'department', e.target.value)}>
+                  {['department', 'admin'].includes(u.role) ? (
+                    <select className="input py-1.5" value={u.departmentId || ''} onChange={(e) => setRole(u.id, u.role, e.target.value)}>
                       <option value="">Select…</option>
                       {departments.map((d) => <option key={d.id} value={d.id}>{d.departmentName}</option>)}
                     </select>
                   ) : <span className="text-slate-400">—</span>}
+                </td>
+                <td className="px-4 py-3">
+                  {u.isActive ? <span className="text-emerald-600">Active</span> : <span className="text-rose-500">Deactivated</span>}
+                </td>
+                <td className="px-4 py-3">
+                  {u.id === me.id ? null : u.isActive
+                    ? <button onClick={() => deactivate(u.id)} className="btn-ghost py-1 text-xs text-rose-600">Deactivate</button>
+                    : <button onClick={() => reactivate(u.id)} className="btn-ghost py-1 text-xs text-emerald-600">Reactivate</button>}
                 </td>
               </tr>
             ))}

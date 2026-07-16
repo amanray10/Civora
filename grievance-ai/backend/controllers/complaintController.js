@@ -164,7 +164,7 @@ exports.list = async (req,res) => {
 
   let where = {};
   if (role === 'citizen') where.userId = id;
-  if (role === 'department') where.departmentId = departmentId;
+  if (role === 'department' || role === 'admin') where.departmentId = departmentId;
   if (status) where.status = status.replaceAll(' ', '_');
   if (search) where.OR = [
     { title: { contains: search } },
@@ -212,7 +212,8 @@ exports.getById = async (req,res) => {
     if (!c) return res.status(404).json({error: "Complaint not found."});
 
     let {role, id: userId, departmentId} = req.user;
-    let allowed = role === 'admin' || c.userId === userId || (role === 'department' && c.departmentId === departmentId);
+    let allowed = role === 'superadmin' || c.userId === userId ||
+      (['department', 'admin'].includes(role) && c.departmentId === departmentId);
     if (!allowed) return res.status(403).json({error: "You do not have access to this complaint."});
 
     console.log(c);
@@ -234,7 +235,7 @@ exports.updateStatus = async (req,res) => {
   try{
     let existing = await prisma.complaint.findUnique({ where: { id: id } });
     if (!existing) return res.status(404).json({error: "Complaint not found."});
-    if (req.user.role === 'department' && existing.departmentId !== req.user.departmentId){
+    if (['department', 'admin'].includes(req.user.role) && existing.departmentId !== req.user.departmentId){
       return res.status(403).json({error: "This complaint belongs to another department."});
     }
 

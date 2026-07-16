@@ -16,8 +16,10 @@ CREATE TABLE departments (
 );
 
 -- ---------------------------------------------------------------
--- Users (role: citizen | department | admin)
--- department_id links a department-role user to their department
+-- Users (role: citizen | department | admin | superadmin)
+-- department_id links a department/admin-role user to their department
+-- (superadmin is global; admin manages one department; department is
+-- that department's queue officer)
 -- ---------------------------------------------------------------
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -25,8 +27,10 @@ CREATE TABLE users (
   name VARCHAR(120) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   picture VARCHAR(512),
-  role ENUM('citizen','department','admin') NOT NULL DEFAULT 'citizen',
+  role ENUM('citizen','department','admin','superadmin') NOT NULL DEFAULT 'citizen',
   department_id INT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
 );
@@ -97,7 +101,9 @@ INSERT INTO departments (department_name, email) VALUES
   ('Parks & Environment', 'parks@city.gov.in'),
   ('General Administration', 'admin@city.gov.in');
 
--- To promote a user to admin after their first Google login:
---   UPDATE users SET role='admin' WHERE email='your-admin@gmail.com';
+-- To promote a user to superadmin after their first Google login:
+--   UPDATE users SET role='superadmin' WHERE email='your-admin@gmail.com';
+-- To make a user the admin of one department:
+--   UPDATE users SET role='admin', department_id=3 WHERE email='dept-manager@gmail.com';
 -- To create a department officer:
 --   UPDATE users SET role='department', department_id=3 WHERE email='officer@gmail.com';

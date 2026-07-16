@@ -8,7 +8,8 @@ import ComplaintHistory from './pages/ComplaintHistory.jsx';
 import ComplaintDetails from './pages/ComplaintDetails.jsx';
 import Profile from './pages/Profile.jsx';
 import Chatbot from './pages/Chatbot.jsx';
-import AdminDashboard from './pages/AdminDashboard.jsx';
+import SuperAdminDashboard from './pages/SuperAdminDashboard.jsx';
+import DeptAdminDashboard from './pages/DeptAdminDashboard.jsx';
 import DepartmentDashboard from './pages/DepartmentDashboard.jsx';
 
 export default function App() {
@@ -23,8 +24,10 @@ export default function App() {
         <Route path="/complaints/:id" element={<Protected><ComplaintDetails /></Protected>} />
         <Route path="/profile" element={<Protected><Profile /></Protected>} />
         <Route path="/chatbot" element={<Protected><Chatbot /></Protected>} />
-        <Route path="/admin" element={<Protected roles={['admin']}><AdminDashboard /></Protected>} />
-        <Route path="/department" element={<Protected roles={['department', 'admin']}><DepartmentDashboard /></Protected>} />
+        <Route path="/superadmin" element={<Protected roles={['superadmin']}><SuperAdminDashboard /></Protected>} />
+        <Route path="/dept-admin" element={<Protected roles={['admin']}><DeptAdminDashboard /></Protected>} />
+        <Route path="/department" element={<Protected roles={['department', 'admin', 'superadmin']}><DepartmentDashboard /></Protected>} />
+        <Route path="/admin" element={<Navigate to="/superadmin" replace />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </div>

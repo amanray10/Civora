@@ -22,8 +22,10 @@ async function main() {
     });
   }
   console.log('Seeded', departments.length, 'departments.');
-  // Tip: after your first Google login, promote yourself:
-  //   UPDATE User SET role='admin' WHERE email='you@gmail.com';
+  // Tip: after your first Google login, promote yourself to superadmin:
+  //   UPDATE User SET role='superadmin' WHERE email='you@gmail.com';
+  // A superadmin can then promote other users to `admin` (department manager)
+  // via Admin -> Users & roles, and each admin adds their own department officers.
 }
 
 main().finally(() => prisma.$disconnect());
