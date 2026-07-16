@@ -1,13 +1,72 @@
 const prisma = require('../config/prisma');
 const { analyzeComplaint } = require('../services/aiService');
+const { getNearbyFacilities } = require('../services/locationService');
 const { getIO } = require('../socket');
 
 const OPEN = ['Submitted', 'AI_Processing', 'Assigned', 'Accepted', 'In_Progress'];
 let pretty = (s) => s.replaceAll('_', ' ');
 
+const STOPWORDS = new Set(['the', 'and', 'for', 'with', 'from', 'this', 'that', 'building', 'issue', 'complaint', 'problem', 'street', 'sector', 'road', 'area', 'near']);
+
+function normalizeText(value = '') {
+  return String(value).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function tokenize(value = '') {
+  return normalizeText(value)
+    .split(' ')
+    .filter(token => token.length > 2 && !STOPWORDS.has(token));
+}
+
+function toNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function distanceMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function hasStrongDuplicateSignals(current, candidate, aiCategory) {
+  if (!candidate) return false;
+
+  const currentLat = toNumberOrNull(current.latitude);
+  const currentLon = toNumberOrNull(current.longitude);
+  const candidateLat = toNumberOrNull(candidate.latitude);
+  const candidateLon = toNumberOrNull(candidate.longitude);
+  const currentLocation = normalizeText(current.location || '');
+  const candidateLocation = normalizeText(candidate.location || '');
+  const sameLocation = currentLocation && candidateLocation && (currentLocation === candidateLocation || currentLocation.includes(candidateLocation) || candidateLocation.includes(currentLocation));
+  const hasGeoMatch = Number.isFinite(currentLat) && Number.isFinite(currentLon) && Number.isFinite(candidateLat) && Number.isFinite(candidateLon)
+    ? distanceMeters(currentLat, currentLon, candidateLat, candidateLon) <= 250
+    : false;
+
+  const currentTokens = new Set(tokenize(`${current.title || ''} ${current.description || ''}`));
+  const candidateTokens = new Set(tokenize(`${candidate.title || ''} ${candidate.summary || ''}`));
+  let overlap = 0;
+  for (const token of currentTokens) {
+    if (candidateTokens.has(token)) overlap += 1;
+  }
+
+  const sameCategory = aiCategory && candidate.category && normalizeText(aiCategory) === normalizeText(candidate.category);
+  return (sameCategory && hasGeoMatch) || (sameCategory && sameLocation) || (hasGeoMatch && overlap >= 2) || (sameLocation && overlap >= 2) || overlap >= 4;
+}
+
 // POST /api/complaints   (multipart: title, description, location, files[])
 exports.create = async (req,res) => {
   let {title, description, location} = req.body;
+  let latitude = toNumberOrNull(req.body.latitude);
+  let longitude = toNumberOrNull(req.body.longitude);
+  let hasGeo = Number.isFinite(latitude) && Number.isFinite(longitude);
   if (!title?.trim() || !description?.trim()){
     return res.status(400).json({error: "Title and description are required."});
   }
@@ -21,6 +80,8 @@ exports.create = async (req,res) => {
         title: title.trim(),
         description: description.trim(),
         location: location?.trim() || null,
+        latitude: hasGeo ? latitude : null,
+        longitude: hasGeo ? longitude : null,
         status: 'AI_Processing',
         attachments: {
           create: (req.files || []).map(f => ({
@@ -40,15 +101,23 @@ exports.create = async (req,res) => {
 
   // 3. AI pipeline: categorise -> department -> priority -> summary -> duplicate
   try{
+    const facilityPromise = hasGeo ? getNearbyFacilities(latitude, longitude).catch((err) => {
+      console.warn('[complaints] Nearby facility lookup failed:', err.message);
+      return [];
+    }) : Promise.resolve([]);
+
     let p1 = prisma.department.findMany();
     let p2 = prisma.complaint.findMany({
       where: { status: { in: OPEN }, id: { not: complaint.id }, duplicateId: null },
       orderBy: { createdAt: 'desc' }, take: 25,
-      select: { id: true, title: true, summary: true, location: true }
+      select: { id: true, title: true, summary: true, location: true, category: true, latitude: true, longitude: true }
     });
-    let [departments, recent] = await Promise.all([p1, p2]);
+    let [departments, recent, nearbyFacilities] = await Promise.all([p1, p2, facilityPromise]);
 
     let ai = await analyzeComplaint(complaint.title, complaint.description, departments, recent);
+    const duplicateCandidate = ai.duplicateId ? recent.find((c) => c.id === ai.duplicateId) : null;
+    const duplicateAllowed = hasStrongDuplicateSignals(complaint, duplicateCandidate, ai.category);
+    const duplicateId = duplicateAllowed ? ai.duplicateId : null;
 
     let updated = await prisma.complaint.update({
       where: { id: complaint.id },
@@ -57,13 +126,16 @@ exports.create = async (req,res) => {
         departmentId: ai.departmentId,
         priority: ai.priority,
         summary: ai.summary,
-        duplicateId: ai.duplicateId,
+        duplicateId: duplicateId,
+        nearbyFacilities: nearbyFacilities.length ? nearbyFacilities : null,
         status: 'Assigned',
         statusHistory: {
           create: {
             status: 'Assigned',
             note: ai.duplicateId
-              ? `AI: linked as duplicate of complaint #${ai.duplicateId}`
+              ? duplicateId
+                ? `AI: linked as duplicate of complaint #${duplicateId}`
+                : `AI: ${ai.category} · ${ai.priority} priority (duplicate rejected by local check)`
               : `AI: ${ai.category} · ${ai.priority} priority${ai.aiUsed ? '' : ' (heuristic fallback)'}`
           }
         }

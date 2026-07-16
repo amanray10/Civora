@@ -5,10 +5,44 @@ import api from '../services/api';
 
 export default function NewComplaint() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ title: '', description: '', location: '' });
+  const [form, setForm] = useState({ title: '', description: '', location: '', latitude: '', longitude: '' });
   const [files, setFiles] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locationNote, setLocationNote] = useState('');
+
+  const captureLocation = () => {
+    setError('');
+    setLocationNote('');
+
+    if (!navigator.geolocation) {
+      setLocationNote('Browser geolocation is not supported here.');
+      return;
+    }
+
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = position.coords.latitude.toFixed(6);
+        const longitude = position.coords.longitude.toFixed(6);
+
+        setForm((current) => ({
+          ...current,
+          latitude,
+          longitude,
+          location: current.location.trim() || `GPS captured: ${latitude}, ${longitude}`
+        }));
+        setLocationNote(`Location captured from your browser at ${latitude}, ${longitude}.`);
+        setLocating(false);
+      },
+      (geoError) => {
+        setLocationNote(geoError.message || 'Unable to capture your location.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -47,6 +81,17 @@ export default function NewComplaint() {
           <label className="label">Location</label>
           <input className="input" placeholder="Street / landmark / ward — helps merge duplicate reports"
             value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-ghost text-xs" onClick={captureLocation} disabled={locating}>
+              {locating ? 'Capturing location…' : 'Use my current location'}
+            </button>
+            {(form.latitude || form.longitude) && (
+              <span className="text-xs text-slate-500">
+                GPS: {form.latitude}, {form.longitude}
+              </span>
+            )}
+          </div>
+          {locationNote && <p className="mt-1 text-xs text-slate-500">{locationNote}</p>}
         </div>
         <div>
           <label className="label"><FiPaperclip className="mb-0.5 mr-1 inline" />Photos or documents (optional, max 4 × 5 MB)</label>

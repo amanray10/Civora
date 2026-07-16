@@ -9,21 +9,44 @@ const axios = require('axios');
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const MODEL = process.env.OLLAMA_MODEL || 'llama3';
+const REQUEST_TIMEOUT = Number(process.env.OLLAMA_TIMEOUT_MS || 300000);
+
+function parseOllamaJson(responseText) {
+  if (typeof responseText !== 'string') {
+    throw new Error('Ollama response was not a string.');
+  }
+
+  const trimmed = responseText.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const fenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    try {
+      return JSON.parse(fenced);
+    } catch {
+      const match = fenced.match(/\{[\s\S]*\}/);
+      if (match) {
+        return JSON.parse(match[0]);
+      }
+      throw new Error(`Ollama returned non-JSON output: ${trimmed.slice(0, 200)}`);
+    }
+  }
+}
 
 async function ollamaJSON(prompt) {
   const { data } = await axios.post(
     `${OLLAMA_URL}/api/generate`,
 { model: MODEL, prompt, format: 'json', stream: false, keep_alive: '60m', options: { temperature: 0.1 } },
-{ timeout: 180000 }
+{ timeout: REQUEST_TIMEOUT }
   );
-  return JSON.parse(data.response);
+  return parseOllamaJson(data.response);
 }
 
 async function ollamaText(prompt) {
   const { data } = await axios.post(
     `${OLLAMA_URL}/api/generate`,
     { model: MODEL, prompt, stream: false, keep_alive: '180m', options: { temperature: 0.4 } },
-    { timeout: 180000 }
+    { timeout: REQUEST_TIMEOUT }
   );
   return data.response.trim();
 }
@@ -74,7 +97,10 @@ Return ONLY a JSON object with exactly these keys:
       aiUsed: true
     };
   } catch (err) {
-    console.warn('[aiService] Ollama unavailable, using heuristic fallback:', err.message);
+    console.warn('[aiService] Ollama triage failed, using heuristic fallback:', err.message);
+    if (err.response?.data) {
+      console.warn('[aiService] Ollama error payload:', err.response.data);
+    }
     return heuristicAnalysis(title, description, departments);
   }
 }

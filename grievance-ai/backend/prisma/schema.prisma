@@ -70,6 +70,9 @@ model Complaint {
   status        Status          @default(Submitted)
   summary       String?         @db.Text
   location      String?
+  latitude      Float?
+  longitude     Float?
+  nearbyFacilities Json?
   duplicateOf   Complaint?      @relation("Duplicates", fields: [duplicateId], references: [id])
   duplicateId   Int?
   duplicates    Complaint[]     @relation("Duplicates")

@@ -39,6 +39,7 @@ export default function ComplaintDetails() {
   if (!c) return <main className="p-8 text-center text-slate-500">Loading…</main>;
 
   const canAct = user.role === 'admin' || (user.role === 'department' && c.departmentId === user.departmentId);
+  const nearbyFacilities = Array.isArray(c.nearbyFacilities) ? c.nearbyFacilities : [];
 
   return (
     <main className="mx-auto grid max-w-6xl gap-6 px-4 py-8 lg:grid-cols-3">
@@ -52,6 +53,19 @@ export default function ComplaintDetails() {
             <div className="flex items-center gap-2"><PriorityBadge priority={c.priority} /><StatusBadge status={c.status} /></div>
           </div>
           {c.location && <p className="mt-2 flex items-center gap-1.5 text-sm text-slate-500"><FiMapPin /> {c.location}</p>}
+          {c.latitude != null && c.longitude != null && (
+            <div className="mt-2 text-sm text-slate-500">
+              <p>Captured coordinates: {Number(c.latitude).toFixed(6)}, {Number(c.longitude).toFixed(6)}</p>
+              <a
+                href={`https://www.google.com/maps?q=${c.latitude},${c.longitude}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-civic underline"
+              >
+                Open in Google Maps
+              </a>
+            </div>
+          )}
           <p className="mt-4 whitespace-pre-wrap text-[15px] leading-relaxed">{c.description}</p>
 
           {c.attachments.length > 0 && (
@@ -93,6 +107,25 @@ export default function ComplaintDetails() {
             <p className="mt-3 text-sm text-slate-500">
               {c.duplicates.length} duplicate report{c.duplicates.length > 1 ? 's' : ''} merged into this complaint:
               {c.duplicates.map((d) => <Link key={d.id} to={`/complaints/${d.id}`} className="ml-1 text-civic underline">#{d.id}</Link>)}
+            </p>
+          )}
+        </div>
+
+        <div className="card p-6">
+          <p className="mb-3 font-display font-bold">Nearby help facilities</p>
+          {nearbyFacilities.length > 0 ? (
+            <div className="space-y-3 text-sm">
+              {nearbyFacilities.map((facility, index) => (
+                <div key={`${facility.name}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="font-semibold text-ink">{facility.name}</p>
+                  <p className="text-slate-500">{facility.type}</p>
+                  <p className="text-xs text-slate-400">About {facility.distanceMeters} m away</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">
+              No nearby facilities were captured for this complaint, or location data was not available.
             </p>
           )}
         </div>
